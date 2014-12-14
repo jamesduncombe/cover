@@ -1,40 +1,43 @@
 package main
 
 import (
-  "bytes"
-  // "encoding/binary"
-  "io/ioutil"
-  // "os"
-  "fmt"
-  "log"
   "bufio"
-  // "io"
-  // "encoding/binary"
+  "bytes"
+  "fmt"
+  "io"
+  "io/ioutil"
+  "log"
+  "os"
 )
 
 var (
-  ID3 = []byte{0x49,0x44,0x33}
-  // TIT2 = []byte{54,49,54,32}
+  ID3      = []byte{0x49, 0x44, 0x33}
+  APIC     = []byte{0x41, 0x50, 0x49, 0x43}
+  JPEG_END = []byte{0xff, 0xd9}
 )
 
-func main() {
+func openFile(filePath string) ([]byte, error) {
 
-  // var file string
-  // fmt.Scanf("%s", &file)
-  // fmt.Println(file)
-
-  byt, err := ioutil.ReadFile("./cochise.mp3")
+  byt, err := ioutil.ReadFile(filePath)
   if err != nil {
     log.Fatal(err)
   }
+  return byt, err
+}
 
+func main() {
+
+  // open file
+  filePath := os.Args[1]
+  byt, _ := openFile(filePath)
+
+  // setup buffers and readers
   b := bytes.NewReader(byt)
-
   br := bufio.NewReader(b)
 
+  // read initial 3 bytes
   p := make([]byte, 3)
-  a, _ := br.Read(p)
-  fmt.Printf("% x  %i\n", p, a )
+  br.Read(p)
 
   // check for ID3
   if ok := bytes.Equal(p, ID3); ok {
@@ -48,69 +51,62 @@ func main() {
   ver, _ := br.ReadByte()
   fmt.Printf("ID3v2.%d\n", uint8(ver))
 
+  // get revision
+  revision, _ := br.ReadByte()
+  fmt.Printf("Revision: %d\n", uint8(revision))
 
-  // var dataLen int
+  // get flags
+  flags, _ := br.ReadByte()
+  fmt.Printf("Flags: %x \n", flags)
 
-  // for {
+  // find picture
+  for {
+    _, err := br.ReadBytes(APIC[0])
+    if err == io.EOF {
+      fmt.Println("EOF reached")
+      return
+    }
+    by, _ := br.Peek(3)
+    if ok := bytes.Equal(by, APIC[1:4]); ok {
+      fmt.Println("Found APIC Tag")
+      break
+    }
+  }
 
-    // da, err := br.ReadBytes(0x54)
-    // byts, err := br.Peek(3)
-    // if err != nil {
-    //   fmt.Println(err)
-    // }
-    //
-    // if ok := bytes.Equal(byts, []byte{0x49,84,50}); ok {
-    //   dataLen = len(da)
-    //   break
-    // }
-  // }
+  jpegData := bytes.NewBuffer([]byte{0xff}) // JPEG header SOI
 
-//   fmt.Println(dataLen)
-//   sizeOffset := dataLen+3
-//   size := byt[sizeOffset:sizeOffset+4]
-//   fmt.Printf("% x\n",size)
-//
-//   var size2 int32
-//   buf := bytes.NewReader(size)
-//   err2 := binary.Read(buf, binary.BigEndian, &size2)
-//   if err2 != nil {
-//     panic("asdas")
-//   }
-//
-//   flags := byt[sizeOffset+4:sizeOffset+6]
-//   fmt.Printf("% x\n", flags)
-//
-//   dataStart := sizeOffset+6
-//   dataEnd := int32(dataStart)+size2
-//   fmt.Printf("-%s-\n", byt[dataStart:dataEnd])
-//
-//   // var dataLen int
-//   // for dataLen == 0 {
-//   //   _, err := br.ReadBytes(0x54)
-//   //   if err != nil {
-//   //     fmt.Println(err)
-//   //   }
-//   //
-//   //   byts, err := br.Peek(3)
-//   //   if err != nil {
-//   //     fmt.Println(err)
-//   //   }
-//   //
-//   //   fmt.Println("%", byts)
-//     
-//     // break
-//     // if ok := bytes.Equal(byts, []byte{49,54,32}); ok {
-//     //   fmt.Println("Here")
-//     // } else {
-//     //   continue
-//     // }
-//     // break
-//
-//
-//     // c, _ := br.ReadByte()
-//     // if c != marker {
-//     //   continue
-//     // }
-//     // dataLen = len(da)
-//
+  // find mime type
+  for {
+    br.ReadBytes(0xff)
+    by, _ := br.Peek(2)
+    if ok := bytes.Equal(by, []byte{0xd8, 0xff}); ok {
+      fmt.Println("Found JPEG")
+      for {
+        peaky, _ := br.Peek(2)
+        if ok := bytes.Equal(peaky, JPEG_END); ok {
+          fmt.Println("End of JPEG")
+
+          f, err := os.Create("./" + filePath + ".jpg")
+          if err != nil {
+            fmt.Println(err)
+          }
+          defer f.Close()
+          fmt.Println("Outputting JPEG")
+          jpegData.Write(JPEG_END)
+          f.Write(jpegData.Bytes())
+
+          break
+        }
+        c, err := br.ReadByte()
+        if err != nil {
+          fmt.Println("Woops")
+        }
+        jpegData.WriteByte(c)
+      }
+      break
+    } else {
+      break
+    }
+  }
+
 }
