@@ -1,16 +1,16 @@
 package main
 
 import (
-  "bufio"
-  "bytes"
-  "flag"
-  "fmt"
-  "io/ioutil"
-  "log"
-  "os"
+	"bufio"
+	"bytes"
+	"flag"
+	"fmt"
+	"io/ioutil"
+	"log"
+	"os"
 
-  "github.com/jamesduncombe/sleeve/cover"
-  "github.com/jamesduncombe/colour"
+	"github.com/jamesduncombe/colour"
+	"github.com/jamesduncombe/sleeve/cover"
 )
 
 const header = `
@@ -22,106 +22,118 @@ const header = `
 `
 
 var (
-  inputFile, outputFile string
-  showDump, verbose bool
+	inputFile, outputFile string
+	showDump, verbose     bool
 )
 
 var (
-  JPEG_END = []byte{0xff, 0xd9}
+	JPEG_END = []byte{0xff, 0xd9}
 )
 
 func init() {
-  flag.StringVar(&inputFile, "i", "", "Input filename of the MP3 to read (or Stdin)")
-  flag.StringVar(&outputFile, "o", "", "Output filename of the JPEG")
-  flag.BoolVar(&verbose, "v", false, "Verbose output")
-  flag.BoolVar(&showDump, "d", false, "Show dump of ID3 info")
+	flag.StringVar(&inputFile, "i", "", "Input filename of the MP3 to read (or Stdin)")
+	flag.StringVar(&outputFile, "o", "", "Output filename of the JPEG")
+	flag.BoolVar(&verbose, "v", false, "Verbose output")
+	flag.BoolVar(&showDump, "d", false, "Show dump of ID3 info")
+}
+
+func parseFlags() {
+	flag.Parse()
+
+	if inputFile == "" || outputFile == "" {
+		colour.Red(header)
+		flag.PrintDefaults()
+		os.Exit(0)
+	}
 }
 
 func main() {
 
-  flag.Parse()
+	parseFlags()
 
-  if inputFile == "" || outputFile =="" {
-    colour.Red(header)
-    flag.PrintDefaults()
-    os.Exit(0)
-  }
+	f, _ := openFile(inputFile)
+	defer f.Close()
 
-  // open file
-  msg("Input file: " + inputFile)
-  byt, _ := openFile(inputFile)
+	// we want to exit very early if this isn't actually an ID3 holding MP3
 
-  // setup buffers and readers
-  b := bytes.NewReader(byt)
-  br := bufio.NewReader(b)
+	p := make([]byte, 3)
+	f.Read(p)
 
-  // read initial 3 bytes
-  p := make([]byte, 3)
-  br.Read(p)
+	if !cover.HasId3(p) {
+		msg("Can't find ID3")
+		return
+	}
 
-  // check for ID3
-  if !cover.HasId3(p) {
-    msg("Can't find ID3")
-    return
-  }
+	// ok, good to go, read it all and setup buffers and readers
+	byt, _ := ioutil.ReadAll(f)
+	b := bytes.NewReader(byt)
+	br := bufio.NewReader(b)
 
-  // get version of ID3
-  if showDump || verbose {
-    cover.Id3Ver(br)
-  }
+	// get version of ID3
+	if showDump || verbose {
+		cover.Id3Ver(br)
+	}
 
-  if ok := cover.HasPicture(br); !ok {
-    msg("Can't find picture")
-    os.Exit(1)
-  }
+	if !cover.HasPicture(br) {
+		msg("Can't find picture")
+		return
+	}
 
-  jpegData := bytes.NewBuffer([]byte{0xff}) // JPEG header SOI
+	jpegData := bytes.NewBuffer([]byte{0xff}) // JPEG header SOI
 
-  msg("Looking for JPEG")
-  for {
-    br.ReadBytes(0xff)
-    by, _ := br.Peek(2)
-    if ok := bytes.Equal(by, []byte{0xd8, 0xff}); ok {
-      msg("Found JPEG data")
-      for {
-        peaky, _ := br.Peek(2)
-        if ok := bytes.Equal(peaky, JPEG_END); ok {
-          msg("Saving output file: " + outputFile)
-          f, err := os.Create(outputFile)
-          if err != nil {
-            fmt.Println(err)
-          }
-          defer f.Close()
-          jpegData.Write(JPEG_END)
-          f.Write(jpegData.Bytes())
+	msg("Looking for JPEG")
+	for {
+		br.ReadBytes(0xff)
+		by, _ := br.Peek(2)
+		if ok := bytes.Equal(by, []byte{0xd8, 0xff}); ok {
+			msg("Found JPEG data")
+			for {
+				peaky, _ := br.Peek(2)
+				if ok := bytes.Equal(peaky, JPEG_END); ok {
+					msg("Saving output file: " + outputFile)
+					f, err := os.Create(outputFile)
+					if err != nil {
+						fmt.Println(err)
+					}
+					defer f.Close()
+					jpegData.Write(JPEG_END)
+					f.Write(jpegData.Bytes())
 
-          break
-        }
-        c, err := br.ReadByte()
-        if err != nil {
-          panic("Can't progress")
-        }
-        jpegData.WriteByte(c)
-      }
-      break
-    } else {
-      break
-    }
-  }
+					break
+				}
+				c, err := br.ReadByte()
+				if err != nil {
+					panic("Can't progress")
+				}
+				jpegData.WriteByte(c)
+			}
+			break
+		} else {
+			break
+		}
+	}
 
 }
 
-func openFile(filePath string) ([]byte, error) {
+func openFile(filePath string) (*os.File, error) {
+	msg("Input file: " + filePath)
 
-  byt, err := ioutil.ReadFile(filePath)
-  if err != nil {
-    log.Fatal(err)
-  }
-  return byt, err
+	f, err := os.Open(filePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// make sure this isn't a directory
+	d, _ := os.Stat(filePath)
+	if d.IsDir() {
+		log.Fatal("This is a directory, please pass a file instead")
+	}
+
+	return f, err
 }
 
 func msg(message string) {
-  if verbose {
-    fmt.Println(message)
-  }
+	if verbose {
+		fmt.Println(message)
+	}
 }

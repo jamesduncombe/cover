@@ -1,3 +1,5 @@
+// Package cover implements utilities for dealing with ID3 tags in MP3s,
+// it provides helper methods for this.
 package cover
 
 import (
@@ -12,23 +14,18 @@ var (
   APIC = []byte{ 0x41, 0x50, 0x49, 0x43 }
 )
 
+type Cover struct {
+}
+
+// HasId3 returns whether the passed in bytestream contains what is an ID3 tag
 func HasId3(p []byte) bool {
-  if ok := bytes.Equal(p, ID3); ok {
-    return true
-  } else {
-    return false
-  }
+  return bytes.Equal(p, ID3)
 }
 
 func Id3Ver(br *bufio.Reader) {
   ver := make([]byte, 2)
   br.Read(ver)
   fmt.Printf("ID3v2.%d Rev: %d\n", uint8(ver[0]), uint8(ver[1]))
-}
-
-func Flags() {
-  // flags, _ := br.ReadByte()
-  // fmt.Printf("Flags: %x \n", flags)
 }
 
 func HasPicture(br *bufio.Reader) bool {
